@@ -58,7 +58,9 @@ export default function AdminLoginPage() {
             <label className="block text-xs text-gray-500 mb-1.5 font-medium">Email</label>
             <input
               type="email"
+              name="email"
               required
+              autoComplete="email"
               value={form.email}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 transition-all"
@@ -70,7 +72,9 @@ export default function AdminLoginPage() {
             <label className="block text-xs text-gray-500 mb-1.5 font-medium">Password</label>
             <input
               type="password"
+              name="password"
               required
+              autoComplete="current-password"
               value={form.password}
               onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
               className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 transition-all"
