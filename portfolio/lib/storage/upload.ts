@@ -1,10 +1,14 @@
-import { createAdminClient } from '@/lib/supabase/admin';
+import { put, del } from '@vercel/blob';
 import {
   ALLOWED_IMAGE_TYPES,
   MAX_FILE_SIZE,
   type StorageBucket,
 } from '@/lib/validation/schemas';
-// crypto nanoid removed — using custom generateId below
+
+// Vercel Blob is a single flat store, so the legacy "bucket" concept is mapped
+// to a top-level pathname prefix (e.g. `projects/abc-123.png`). This keeps the
+// existing API surface (`/api/storage/:bucket`) and the `UploadResult` contract
+// unchanged while swapping Supabase Storage for Vercel Blob underneath.
 
 function generateId(): string {
   return Math.random().toString(36).slice(2, 11);
@@ -16,9 +20,16 @@ export interface UploadResult {
   bucket: StorageBucket;
 }
 
+/** Build the blob pathname (`bucket/[folder/]filename`) for a file. */
+function buildPath(bucket: StorageBucket, folder: string, fileName: string): string {
+  const ext = fileName.split('.').pop() ?? 'bin';
+  const safeName = `${generateId()}-${Date.now()}.${ext}`;
+  return [bucket, folder, safeName].filter(Boolean).join('/');
+}
+
 /**
- * Upload a file to a Supabase Storage bucket.
- * Returns the public URL and storage path.
+ * Upload a file to Vercel Blob under the given bucket prefix.
+ * Returns the public URL and blob pathname.
  */
 export async function uploadFile(
   file: File,
@@ -35,41 +46,20 @@ export async function uploadFile(
     throw new Error(`File type "${file.type}" is not allowed`);
   }
 
-  // ── Build path ────────────────────────────────────────────
-  const ext = file.name.split('.').pop() ?? 'bin';
-  const safeName = `${generateId()}-${Date.now()}.${ext}`;
-  const filePath = folder ? `${folder}/${safeName}` : safeName;
-
   // ── Upload ────────────────────────────────────────────────
-  const supabase = createAdminClient();
-  const arrayBuffer = await file.arrayBuffer();
-  const buffer = Buffer.from(arrayBuffer);
+  const pathname = buildPath(bucket, folder, file.name);
 
-  const { error } = await supabase.storage
-    .from(bucket)
-    .upload(filePath, buffer, {
-      contentType: file.type,
-      upsert: false,
-    });
+  const blob = await put(pathname, file, {
+    access: 'public',
+    contentType: file.type || undefined,
+  });
 
-  if (error) throw new Error(`Upload failed: ${error.message}`);
-
-  // ── Public URL ────────────────────────────────────────────
-  const { data: { publicUrl } } = supabase.storage
-    .from(bucket)
-    .getPublicUrl(filePath);
-
-  return { url: publicUrl, path: filePath, bucket };
+  return { url: blob.url, path: blob.pathname, bucket };
 }
 
-/** Delete a file from Supabase Storage by its path */
-export async function deleteFile(
-  bucket: StorageBucket,
-  path: string
-): Promise<void> {
-  const supabase = createAdminClient();
-  const { error } = await supabase.storage.from(bucket).remove([path]);
-  if (error) throw new Error(`Delete failed: ${error.message}`);
+/** Delete a file from Vercel Blob by its pathname or URL. */
+export async function deleteFile(pathOrUrl: string): Promise<void> {
+  await del(pathOrUrl);
 }
 
 /**
@@ -82,19 +72,18 @@ export async function replaceFile(
   oldPath: string,
   folder = ''
 ): Promise<UploadResult> {
-  await deleteFile(bucket, oldPath).catch(() => {
+  await deleteFile(oldPath).catch(() => {
     // Non-fatal: old file may already be gone
   });
   return uploadFile(newFile, bucket, folder);
 }
 
-/** Extract the storage path from a Supabase public URL */
-export function extractPathFromUrl(
-  url: string,
-  bucket: StorageBucket
-): string {
-  const marker = `/storage/v1/object/public/${bucket}/`;
-  const idx = url.indexOf(marker);
-  if (idx === -1) return url;
-  return url.slice(idx + marker.length);
+/** Extract the blob pathname from a Vercel Blob public URL. */
+export function extractPathFromUrl(url: string): string {
+  try {
+    // Blob URLs look like https://<id>.public.blob.vercel-storage.com/<pathname>
+    return new URL(url).pathname.replace(/^\/+/, '');
+  } catch {
+    return url;
+  }
 }

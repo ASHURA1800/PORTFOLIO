@@ -58,10 +58,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return err('Provide either ?path= (storage path) or ?url= (public URL)');
   }
 
-  const filePath = pathParam ?? extractPathFromUrl(urlParam!, bucket as StorageBucket);
+  const filePath = pathParam ?? extractPathFromUrl(urlParam!);
 
   try {
-    await deleteFile(bucket as StorageBucket, filePath);
+    await deleteFile(filePath);
     return ok(null, 'File deleted');
   } catch (e) {
     return err((e as Error).message, 400);
