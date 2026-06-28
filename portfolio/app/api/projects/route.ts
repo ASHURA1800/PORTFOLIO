@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
+import { and, or, eq, ilike, asc, desc } from 'drizzle-orm';
+import { db, projects } from '@/lib/db';
 import { projectSchema, paginationSchema } from '@/lib/validation/schemas';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
 import { ok, err, created, validationError } from '@/lib/services/response';
 import { requireAdmin, isAuthError } from '@/lib/auth/session';
 
@@ -16,32 +16,43 @@ export async function GET(req: NextRequest) {
   const featured = url.searchParams.get('featured');
   const from = (page - 1) * limit;
 
-  const supabase = await createClient();
-  let query = supabase
-    .from('projects')
-    .select('*', { count: 'exact' })
-    .order('order_index', { ascending: true })
-    .order('created_at', { ascending: order === 'asc' });
-
-  if (featured === 'true') query = query.eq('featured', true);
-
+  const conditions = [];
+  if (featured === 'true') conditions.push(eq(projects.featured, true));
   if (search) {
-    query = query.or(
-      `title.ilike.%${search}%,description.ilike.%${search}%,category.ilike.%${search}%`
+    conditions.push(
+      or(
+        ilike(projects.title, `%${search}%`),
+        ilike(projects.description, `%${search}%`),
+        ilike(projects.category, `%${search}%`)
+      )
     );
   }
+  const where = conditions.length ? and(...conditions) : undefined;
 
-  const { data, error, count } = await query.range(from, from + limit - 1);
+  try {
+    const items = await db
+      .select()
+      .from(projects)
+      .where(where)
+      .orderBy(
+        asc(projects.order_index),
+        order === 'asc' ? asc(projects.created_at) : desc(projects.created_at)
+      )
+      .limit(limit)
+      .offset(from);
 
-  if (error) return err('Failed to fetch projects', 500);
+    const total = await db.$count(projects, where);
 
-  return ok({
-    items: data,
-    total: count ?? 0,
-    page,
-    limit,
-    totalPages: Math.ceil((count ?? 0) / limit),
-  });
+    return ok({
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch {
+    return err('Failed to fetch projects', 500);
+  }
 }
 
 // ── POST /api/projects — admin create ─────────────────────────────────────────
@@ -55,13 +66,10 @@ export async function POST(req: NextRequest) {
   const parsed = projectSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from('projects')
-    .insert(parsed.data as any)
-    .select()
-    .single();
-
-  if (error) return err(`Failed to create project: ${error.message}`, 500);
-  return created(data, 'Project created');
+  try {
+    const [data] = await db.insert(projects).values(parsed.data).returning();
+    return created(data, 'Project created');
+  } catch (e) {
+    return err(`Failed to create project: ${(e as Error).message}`, 500);
+  }
 }

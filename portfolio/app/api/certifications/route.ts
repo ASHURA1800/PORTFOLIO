@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
+import { asc, desc } from 'drizzle-orm';
+import { db, certifications } from '@/lib/db';
 import { certificationSchema, paginationSchema } from '@/lib/validation/schemas';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
 import { ok, err, created, validationError } from '@/lib/services/response';
 import { requireAdmin, isAuthError } from '@/lib/auth/session';
 
@@ -14,24 +14,30 @@ export async function GET(req: NextRequest) {
     : { page: 1, limit: 20, order: 'asc' as const };
 
   const from = (page - 1) * limit;
-  const supabase = await createClient();
 
-  const { data, error, count } = await supabase
-    .from('certifications')
-    .select('*', { count: 'exact' })
-    .order('order_index', { ascending: true })
-    .order('issued_date', { ascending: order === 'asc' })
-    .range(from, from + limit - 1);
+  try {
+    const items = await db
+      .select()
+      .from(certifications)
+      .orderBy(
+        asc(certifications.order_index),
+        order === 'asc' ? asc(certifications.issued_date) : desc(certifications.issued_date)
+      )
+      .limit(limit)
+      .offset(from);
 
-  if (error) return err('Failed to fetch certifications', 500);
+    const total = await db.$count(certifications);
 
-  return ok({
-    items: data,
-    total: count ?? 0,
-    page,
-    limit,
-    totalPages: Math.ceil((count ?? 0) / limit),
-  });
+    return ok({
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch {
+    return err('Failed to fetch certifications', 500);
+  }
 }
 
 // ── POST /api/certifications — admin create ───────────────────────────────────
@@ -49,13 +55,10 @@ export async function POST(req: NextRequest) {
   const parsed = certificationSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from('certifications')
-    .insert(parsed.data as any)
-    .select()
-    .single();
-
-  if (error) return err(`Failed to create certification: ${error.message}`, 500);
-  return created(data, 'Certification created');
+  try {
+    const [data] = await db.insert(certifications).values(parsed.data).returning();
+    return created(data, 'Certification created');
+  } catch (e) {
+    return err(`Failed to create certification: ${(e as Error).message}`, 500);
+  }
 }

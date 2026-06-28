@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
+import { gte, desc } from 'drizzle-orm';
+import { db, analytics } from '@/lib/db';
 import { analyticsSchema } from '@/lib/validation/schemas';
-import { createAdminClient } from '@/lib/supabase/admin';
 import { rateLimit, getIP } from '@/lib/validation/rate-limit';
 import { ok, err, validationError, rateLimitError } from '@/lib/services/response';
 import { requireAdmin, isAuthError } from '@/lib/auth/session';
@@ -17,16 +18,16 @@ export async function POST(req: NextRequest) {
   const parsed = analyticsSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const supabase = createAdminClient();
-  const { error } = await supabase.from('analytics').insert({
-    ...parsed.data,
-    ip_address: ip,
-    user_agent: req.headers.get('user-agent') ?? undefined,
-    referrer: req.headers.get('referer') ?? parsed.data.referrer,
-  });
-
-  if (error) {
-    console.error('[Analytics] Insert error:', error);
+  try {
+    await db.insert(analytics).values({
+      event_type: parsed.data.event_type,
+      metadata: parsed.data.metadata,
+      ip_address: ip,
+      user_agent: req.headers.get('user-agent') ?? undefined,
+      referrer: req.headers.get('referer') ?? parsed.data.referrer,
+    });
+  } catch (e) {
+    console.error('[Analytics] Insert error:', e);
     // Silently succeed — analytics should never break user experience
   }
 
@@ -40,39 +41,27 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const days = Math.min(365, Math.max(1, Number(url.searchParams.get('days') ?? 30)));
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const supabase = createAdminClient();
-
-  // Parallel queries for dashboard metrics
-  const [eventsRes, countsRes, recentRes] = await Promise.all([
-    // All events in window
-    supabase
-      .from('analytics')
-      .select('event_type, created_at', { count: 'exact' })
-      .gte('created_at', since),
-
-    // Count per event type
-    supabase.rpc('get_analytics_counts', { since_date: since }).maybeSingle(),
-
-    // Last 20 events
-    supabase
-      .from('analytics')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(20),
+  // All events in the window + last 20 events
+  const [events, recent] = await Promise.all([
+    db
+      .select({ event_type: analytics.event_type, created_at: analytics.created_at })
+      .from(analytics)
+      .where(gte(analytics.created_at, since)),
+    db.select().from(analytics).orderBy(desc(analytics.created_at)).limit(20),
   ]);
 
-  // Aggregate counts manually (fallback if RPC not defined)
+  // Aggregate counts per event type
   const eventCounts: Record<string, number> = {};
-  for (const row of eventsRes.data ?? []) {
+  for (const row of events) {
     eventCounts[row.event_type] = (eventCounts[row.event_type] ?? 0) + 1;
   }
 
   // Daily breakdown (last N days)
   const dailyMap: Record<string, number> = {};
-  for (const row of eventsRes.data ?? []) {
-    const day = row.created_at.slice(0, 10);
+  for (const row of events) {
+    const day = row.created_at.toISOString().slice(0, 10);
     dailyMap[day] = (dailyMap[day] ?? 0) + 1;
   }
   const daily = Object.entries(dailyMap)
@@ -80,10 +69,10 @@ export async function GET(req: NextRequest) {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   return ok({
-    period: { days, since },
-    total: eventsRes.count ?? 0,
+    period: { days, since: since.toISOString() },
+    total: events.length,
     byType: eventCounts,
     daily,
-    recent: recentRes.data ?? [],
+    recent,
   });
 }

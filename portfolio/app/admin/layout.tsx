@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { createClient } from '@/lib/supabase/server';
+import { getUser } from '@/lib/auth/session';
 import AdminSidebar from './_components/AdminSidebar';
 
 export default async function AdminLayout({
@@ -7,8 +7,7 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getUser();
 
   if (!user || user.email !== process.env.ADMIN_EMAIL) {
     redirect('/admin/login');
@@ -16,7 +15,7 @@ export default async function AdminLayout({
 
   return (
     <div className="min-h-screen bg-gray-950 flex">
-      <AdminSidebar userEmail={user.email!} />
+      <AdminSidebar userEmail={user.email} />
       <main className="flex-1 p-8 overflow-auto">{children}</main>
     </div>
   );

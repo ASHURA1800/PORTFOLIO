@@ -1,43 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { verifyToken, SESSION_COOKIE } from '@/lib/auth/jwt';
 
 // Routes that require admin authentication
 const ADMIN_ROUTES = ['/admin'];
-const ADMIN_API_ROUTES = [
-  '/api/contact',       // GET (list) only
-  '/api/analytics',     // GET only; POST is public
-  '/api/storage',
-];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // ── Refresh Supabase session on every request ─────────────
-  let response = NextResponse.next({ request: req });
+  const response = NextResponse.next({ request: req });
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return req.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value }) =>
-            req.cookies.set(name, value)
-          );
-          response = NextResponse.next({ request: req });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options)
-          );
-        },
-      },
-    }
-  );
-
-  // Refresh session (important: getUser, not getSession)
-  const { data: { user } } = await supabase.auth.getUser();
+  // ── Verify JWT session ────────────────────────────────────
+  const token = req.cookies.get(SESSION_COOKIE)?.value;
+  const user = await verifyToken(token);
+  const isAdminUser = !!user && user.email === process.env.ADMIN_EMAIL;
 
   // ── Protect /admin pages ──────────────────────────────────
   const isAdminPage = ADMIN_ROUTES.some(
@@ -45,7 +20,7 @@ export async function middleware(req: NextRequest) {
   );
 
   if (isAdminPage && pathname !== '/admin/login') {
-    if (!user || user.email !== process.env.ADMIN_EMAIL) {
+    if (!isAdminUser) {
       const loginUrl = new URL('/admin/login', req.url);
       loginUrl.searchParams.set('redirectTo', pathname);
       return NextResponse.redirect(loginUrl);
@@ -53,7 +28,7 @@ export async function middleware(req: NextRequest) {
   }
 
   // ── Redirect already-logged-in admin away from /admin/login ─
-  if (pathname === '/admin/login' && user?.email === process.env.ADMIN_EMAIL) {
+  if (pathname === '/admin/login' && isAdminUser) {
     return NextResponse.redirect(new URL('/admin', req.url));
   }
 

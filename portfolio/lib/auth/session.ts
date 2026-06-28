@@ -1,18 +1,17 @@
-import { createClient } from '@/lib/supabase/server';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { verifyToken, SESSION_COOKIE, type SessionPayload } from '@/lib/auth/jwt';
 
-/** Returns the current session user or null */
-export async function getSession() {
-  const supabase = await createClient();
-  const { data: { session } } = await supabase.auth.getSession();
-  return session;
+/** Returns the current session user ({ email }) or null */
+export async function getUser(): Promise<SessionPayload | null> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE)?.value;
+  return verifyToken(token);
 }
 
-/** Returns the current user or null */
-export async function getUser() {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  return user;
+/** Backwards-compatible alias — returns the session payload or null */
+export async function getSession(): Promise<SessionPayload | null> {
+  return getUser();
 }
 
 /** Checks if the current user is the portfolio admin */
@@ -28,7 +27,7 @@ export async function isAdmin(): Promise<boolean> {
  */
 export async function requireAdmin(
   _req?: NextRequest
-): Promise<{ user: NonNullable<Awaited<ReturnType<typeof getUser>>>} | NextResponse> {
+): Promise<{ user: SessionPayload } | NextResponse> {
   const user = await getUser();
 
   if (!user) {

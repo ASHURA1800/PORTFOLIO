@@ -1,8 +1,9 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createClient } from '@/lib/supabase/server';
+import bcrypt from 'bcryptjs';
+import { signToken, sessionCookieOptions, SESSION_COOKIE, SESSION_MAX_AGE } from '@/lib/auth/jwt';
 import { rateLimit, getIP } from '@/lib/validation/rate-limit';
-import { ok, err, rateLimitError } from '@/lib/services/response';
+import { err, rateLimitError } from '@/lib/services/response';
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -21,24 +22,26 @@ export async function POST(req: NextRequest) {
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) return err('Invalid email or password', 400);
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
-    password: parsed.data.password,
-  });
+  const adminEmail = process.env.ADMIN_EMAIL;
+  const passwordHash = process.env.ADMIN_PASSWORD_HASH;
+  if (!adminEmail || !passwordHash) {
+    return err('Server auth is not configured', 500);
+  }
 
-  if (error || !data.user) {
+  // Verify identity + password (constant-ish time: always run bcrypt)
+  const emailMatches = parsed.data.email.toLowerCase() === adminEmail.toLowerCase();
+  const passwordMatches = await bcrypt.compare(parsed.data.password, passwordHash);
+
+  if (!emailMatches || !passwordMatches) {
     return err('Invalid email or password', 401);
   }
 
-  // Confirm they are the admin
-  if (data.user.email !== process.env.ADMIN_EMAIL) {
-    await supabase.auth.signOut();
-    return err('Unauthorized', 403);
-  }
+  const token = await signToken({ email: adminEmail });
 
-  return ok(
-    { user: { id: data.user.id, email: data.user.email } },
-    'Logged in successfully'
+  const res = NextResponse.json(
+    { success: true, data: { user: { email: adminEmail } }, message: 'Logged in successfully' },
+    { status: 200 }
   );
+  res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions(SESSION_MAX_AGE));
+  return res;
 }

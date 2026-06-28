@@ -1,4 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
+import { eq, desc } from 'drizzle-orm';
+import { db, blogs } from '@/lib/db';
 import { Metadata } from 'next';
 import { Clock, ArrowLeft, BookOpen } from 'lucide-react';
 import Link from 'next/link';
@@ -12,14 +13,22 @@ export const metadata: Metadata = {
 export const revalidate = 60; // ISR: revalidate every 60s
 
 export default async function BlogListPage() {
-  const supabase = await createClient();
-  const { data: posts } = await supabase
-    .from('blogs')
-    .select('id, title, slug, excerpt, tags, read_time, gradient, created_at')
-    .eq('published', true)
-    .order('created_at', { ascending: false });
+  const posts = await db
+    .select({
+      id: blogs.id,
+      title: blogs.title,
+      slug: blogs.slug,
+      excerpt: blogs.excerpt,
+      tags: blogs.tags,
+      read_time: blogs.read_time,
+      gradient: blogs.gradient,
+      created_at: blogs.created_at,
+    })
+    .from(blogs)
+    .where(eq(blogs.published, true))
+    .orderBy(desc(blogs.created_at));
 
-  const articles = (posts ?? []) as Blog[];
+  const articles = posts as unknown as Blog[];
 
   return (
     <main className="min-h-screen bg-[#050508] text-white">

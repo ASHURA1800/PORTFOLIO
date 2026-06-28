@@ -1,26 +1,25 @@
-import { createClient } from '@/lib/supabase/server';
+import { gte } from 'drizzle-orm';
+import { db, projects, blogs, certifications, testimonials, contacts, analytics } from '@/lib/db';
 
 async function getStats() {
-  const supabase = await createClient();
-  const [projects, blogs, certs, testimonials, contacts, analytics] = await Promise.all([
-    supabase.from('projects').select('id', { count: 'exact', head: true }),
-    supabase.from('blogs').select('id', { count: 'exact', head: true }),
-    supabase.from('certifications').select('id', { count: 'exact', head: true }),
-    supabase.from('testimonials').select('id', { count: 'exact', head: true }),
-    supabase.from('contacts').select('id', { count: 'exact', head: true }),
-    supabase
-      .from('analytics')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
-  ]);
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const [projectsCount, blogsCount, certsCount, testimonialsCount, contactsCount, analytics30d] =
+    await Promise.all([
+      db.$count(projects),
+      db.$count(blogs),
+      db.$count(certifications),
+      db.$count(testimonials),
+      db.$count(contacts),
+      db.$count(analytics, gte(analytics.created_at, since)),
+    ]);
 
   return {
-    projects: projects.count ?? 0,
-    blogs: blogs.count ?? 0,
-    certifications: certs.count ?? 0,
-    testimonials: testimonials.count ?? 0,
-    contacts: contacts.count ?? 0,
-    analytics30d: analytics.count ?? 0,
+    projects: projectsCount,
+    blogs: blogsCount,
+    certifications: certsCount,
+    testimonials: testimonialsCount,
+    contacts: contactsCount,
+    analytics30d,
   };
 }
 

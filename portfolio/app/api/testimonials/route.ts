@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
+import { asc, desc } from 'drizzle-orm';
+import { db, testimonials } from '@/lib/db';
 import { testimonialSchema, paginationSchema } from '@/lib/validation/schemas';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
 import { ok, err, created, validationError } from '@/lib/services/response';
 import { requireAdmin, isAuthError } from '@/lib/auth/session';
 
@@ -14,24 +14,27 @@ export async function GET(req: NextRequest) {
     : { page: 1, limit: 20 };
 
   const from = (page - 1) * limit;
-  const supabase = await createClient();
 
-  const { data, error, count } = await supabase
-    .from('testimonials')
-    .select('*', { count: 'exact' })
-    .order('order_index', { ascending: true })
-    .order('created_at', { ascending: false })
-    .range(from, from + limit - 1);
+  try {
+    const items = await db
+      .select()
+      .from(testimonials)
+      .orderBy(asc(testimonials.order_index), desc(testimonials.created_at))
+      .limit(limit)
+      .offset(from);
 
-  if (error) return err('Failed to fetch testimonials', 500);
+    const total = await db.$count(testimonials);
 
-  return ok({
-    items: data,
-    total: count ?? 0,
-    page,
-    limit,
-    totalPages: Math.ceil((count ?? 0) / limit),
-  });
+    return ok({
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch {
+    return err('Failed to fetch testimonials', 500);
+  }
 }
 
 // ── POST /api/testimonials — admin create ─────────────────────────────────────
@@ -49,13 +52,10 @@ export async function POST(req: NextRequest) {
   const parsed = testimonialSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from('testimonials')
-    .insert(parsed.data as any)
-    .select()
-    .single();
-
-  if (error) return err(`Failed to create testimonial: ${error.message}`, 500);
-  return created(data, 'Testimonial created');
+  try {
+    const [data] = await db.insert(testimonials).values(parsed.data).returning();
+    return created(data, 'Testimonial created');
+  } catch (e) {
+    return err(`Failed to create testimonial: ${(e as Error).message}`, 500);
+  }
 }

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
+import { and, or, eq, ilike, asc, desc, arrayContains } from 'drizzle-orm';
+import { db, blogs } from '@/lib/db';
 import { blogSchema, paginationSchema } from '@/lib/validation/schemas';
-import { createAdminClient } from '@/lib/supabase/admin';
-import { createClient } from '@/lib/supabase/server';
 import { ok, err, created, validationError } from '@/lib/services/response';
 import { requireAdmin, isAuthError } from '@/lib/auth/session';
 
@@ -13,36 +13,45 @@ export async function GET(req: NextRequest) {
   );
 
   // Only admins can see unpublished posts
-  const auth = await requireAdmin(req).catch(() => null);
-  const isAdminRequest = auth && !(auth instanceof Response);
+  const auth = await requireAdmin(req);
+  const isAdminRequest = !isAuthError(auth);
 
-  const supabase = await createClient();
   const from = (page - 1) * limit;
 
-  let query = supabase
-    .from('blogs')
-    .select('*', { count: 'exact' })
-    .order('created_at', { ascending: order === 'asc' });
-
-  // Public users only see published posts
-  if (!isAdminRequest) query = query.eq('published', true);
-
+  const conditions = [];
+  if (!isAdminRequest) conditions.push(eq(blogs.published, true));
   if (search) {
-    query = query.or(
-      `title.ilike.%${search}%,excerpt.ilike.%${search}%,tags.cs.{${search}}`
+    conditions.push(
+      or(
+        ilike(blogs.title, `%${search}%`),
+        ilike(blogs.excerpt, `%${search}%`),
+        arrayContains(blogs.tags, [search])
+      )
     );
   }
+  const where = conditions.length ? and(...conditions) : undefined;
 
-  const { data, error, count } = await query.range(from, from + limit - 1);
-  if (error) return err('Failed to fetch blogs', 500);
+  try {
+    const items = await db
+      .select()
+      .from(blogs)
+      .where(where)
+      .orderBy(order === 'asc' ? asc(blogs.created_at) : desc(blogs.created_at))
+      .limit(limit)
+      .offset(from);
 
-  return ok({
-    items: data,
-    total: count ?? 0,
-    page,
-    limit,
-    totalPages: Math.ceil((count ?? 0) / limit),
-  });
+    const total = await db.$count(blogs, where);
+
+    return ok({
+      items,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch {
+    return err('Failed to fetch blogs', 500);
+  }
 }
 
 // ── POST /api/blogs ────────────────────────────────────────────────────────────
@@ -56,16 +65,14 @@ export async function POST(req: NextRequest) {
   const parsed = blogSchema.safeParse(body);
   if (!parsed.success) return validationError(parsed.error);
 
-  const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from('blogs')
-    .insert(parsed.data as any)
-    .select()
-    .single();
-
-  if (error) {
-    if (error.code === '23505') return err('A blog with this slug already exists', 409);
-    return err(`Failed to create blog: ${error.message}`, 500);
+  try {
+    const [data] = await db.insert(blogs).values(parsed.data).returning();
+    return created(data, 'Blog created');
+  } catch (e) {
+    // Postgres unique-violation on slug
+    if ((e as { code?: string }).code === '23505') {
+      return err('A blog with this slug already exists', 409);
+    }
+    return err(`Failed to create blog: ${(e as Error).message}`, 500);
   }
-  return created(data, 'Blog created');
 }

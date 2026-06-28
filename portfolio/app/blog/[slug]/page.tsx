@@ -1,5 +1,5 @@
-import { createClient } from '@/lib/supabase/server';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { and, eq } from 'drizzle-orm';
+import { db, blogs } from '@/lib/db';
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Clock, Tag } from 'lucide-react';
@@ -8,12 +8,11 @@ import type { Blog } from '@/types';
 
 // ── Static param generation for ISR ──────────────────────────────────────────
 export async function generateStaticParams() {
-  const supabase = createAdminClient();
-  const { data } = await supabase
-    .from('blogs')
-    .select('slug')
-    .eq('published', true);
-  return (data ?? []).map((p) => ({ slug: p.slug }));
+  const data = await db
+    .select({ slug: blogs.slug })
+    .from(blogs)
+    .where(eq(blogs.published, true));
+  return data.map((p) => ({ slug: p.slug }));
 }
 
 // ── Dynamic SEO metadata ──────────────────────────────────────────────────────
@@ -23,13 +22,16 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from('blogs')
-    .select('title, excerpt, tags, created_at')
-    .eq('slug', slug)
-    .eq('published', true)
-    .single();
+  const [data] = await db
+    .select({
+      title: blogs.title,
+      excerpt: blogs.excerpt,
+      tags: blogs.tags,
+      created_at: blogs.created_at,
+    })
+    .from(blogs)
+    .where(and(eq(blogs.slug, slug), eq(blogs.published, true)))
+    .limit(1);
 
   if (!data) return { title: 'Article Not Found' };
 
@@ -41,8 +43,8 @@ export async function generateMetadata({
       title: data.title,
       description: data.excerpt ?? '',
       type: 'article',
-      publishedTime: data.created_at,
-      tags: data.tags,
+      publishedTime: data.created_at?.toISOString(),
+      tags: data.tags ?? undefined,
     },
     twitter: {
       card: 'summary_large_image',
@@ -61,18 +63,16 @@ export default async function BlogPostPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const supabase = await createClient();
 
-  const { data: post } = await supabase
-    .from('blogs')
-    .select('*')
-    .eq('slug', slug)
-    .eq('published', true)
-    .single();
+  const [post] = await db
+    .select()
+    .from(blogs)
+    .where(and(eq(blogs.slug, slug), eq(blogs.published, true)))
+    .limit(1);
 
   if (!post) notFound();
 
-  const article = post as Blog;
+  const article = post as unknown as Blog;
   const dateStr = article.created_at
     ? new Date(article.created_at).toLocaleDateString('en-US', {
         year: 'numeric',
