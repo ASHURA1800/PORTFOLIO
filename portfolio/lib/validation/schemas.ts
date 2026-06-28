@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+
+// Accepts a valid URL or an empty string (clear intent from admin UI).
+// Transforms "" → null so the DB stores NULL, not an empty string.
+const optionalUrl = (msg: string) =>
+  z.string().url(msg).or(z.literal('')).optional().transform((v) => (v === '' ? null : v));
+
 // ─── Contact ─────────────────────────────────────────────────────────────────
 
 export const contactSchema = z.object({
@@ -36,11 +43,12 @@ export const projectSchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
   subtitle: z.string().trim().max(300).optional(),
   description: z.string().trim().max(2000).optional(),
-  image: z.string().url('Invalid image URL').optional().or(z.literal('')),
-  gradient: z.string().trim().default('from-violet-600 to-blue-600'),
-  tech_stack: z.array(z.string().trim()).default([]),
-  github_url: z.string().url('Invalid GitHub URL').optional().or(z.literal('')),
-  live_url: z.string().url('Invalid live URL').optional().or(z.literal('')),
+  image: optionalUrl('Invalid image URL'),
+  gradient: z.string().trim().max(200).default('from-violet-600 to-blue-600'),
+  // Per-item cap prevents oversized tag strings; array cap bounds total storage
+  tech_stack: z.array(z.string().trim().max(100)).max(50).default([]),
+  github_url: optionalUrl('Invalid GitHub URL'),
+  live_url: optionalUrl('Invalid live URL'),
   category: z.string().trim().max(100).optional(),
   featured: z.boolean().default(false),
   order_index: z.number().int().default(0),
@@ -59,10 +67,11 @@ export const blogSchema = z.object({
     .max(200)
     .regex(/^[a-z0-9-]+$/, 'Slug must be lowercase with hyphens only'),
   excerpt: z.string().trim().max(500).optional(),
-  content: z.string().optional(),
-  thumbnail: z.string().url('Invalid thumbnail URL').optional().or(z.literal('')),
-  gradient: z.string().trim().default('from-violet-600 to-blue-600'),
-  tags: z.array(z.string().trim()).default([]),
+  // Unbounded content is a DoS vector — 200k chars is generous for any blog post
+  content: z.string().max(200_000).optional(),
+  thumbnail: optionalUrl('Invalid thumbnail URL'),
+  gradient: z.string().trim().max(200).default('from-violet-600 to-blue-600'),
+  tags: z.array(z.string().trim().max(100)).max(50).default([]),
   read_time: z.string().trim().max(50).optional(),
   published: z.boolean().default(false),
 });
@@ -74,11 +83,18 @@ export type BlogInput = z.infer<typeof blogSchema>;
 export const certificationSchema = z.object({
   title: z.string().trim().min(1, 'Title is required').max(200),
   issuer: z.string().trim().min(1, 'Issuer is required').max(200),
-  image: z.string().url('Invalid image URL').optional().or(z.literal('')),
+  image: optionalUrl('Invalid image URL'),
   icon: z.string().max(10).default('🏆'),
-  issued_date: z.string().optional(),
-  expiry_date: z.string().optional(),
-  credential_url: z.string().url('Invalid credential URL').optional().or(z.literal('')),
+  // Require ISO 8601 (YYYY-MM-DD) so Postgres date columns never see garbage input
+  issued_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
+    .optional(),
+  expiry_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format')
+    .optional(),
+  credential_url: optionalUrl('Invalid credential URL'),
   order_index: z.number().int().default(0),
 });
 
@@ -91,11 +107,7 @@ export const testimonialSchema = z.object({
   role: z.string().trim().min(1, 'Role is required').max(200),
   feedback: z.string().trim().min(10, 'Feedback too short').max(2000),
   avatar: z.string().max(10).optional(),
-  avatar_url: z
-    .string()
-    .url('Invalid avatar URL')
-    .optional()
-    .or(z.literal('')),
+  avatar_url: optionalUrl('Invalid avatar URL'),
   rating: z.number().int().min(1).max(5).default(5),
   featured: z.boolean().default(true),
   order_index: z.number().int().default(0),
@@ -115,7 +127,11 @@ export const analyticsSchema = z.object({
     'github_click',
     'live_url_click',
   ]),
-  metadata: z.record(z.string(), z.unknown()).default({}),
+  // Public endpoint: cap key count and key length to limit payload abuse
+  metadata: z
+    .record(z.string().max(100), z.unknown())
+    .refine((m) => Object.keys(m).length <= 20, 'Too many metadata keys')
+    .default({}),
   referrer: z.string().max(500).optional(),
 });
 
@@ -138,7 +154,9 @@ export const ALLOWED_IMAGE_TYPES = [
   'image/png',
   'image/webp',
   'image/gif',
-  'image/svg+xml',
+  // SVG intentionally excluded: SVG files can contain <script> tags and event
+  // handlers that execute in-browser when served directly or embedded, creating
+  // a stored XSS vector.
 ] as const;
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5 MB

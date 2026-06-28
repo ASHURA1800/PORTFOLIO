@@ -70,6 +70,7 @@ export async function POST(req: NextRequest) {
     const [data] = await db.insert(projects).values(parsed.data).returning();
     return created(data, 'Project created');
   } catch (e) {
-    return err(`Failed to create project: ${(e as Error).message}`, 500);
+    console.error('[Projects] Create failed:', e);
+    return err('Failed to create project', 500);
   }
 }

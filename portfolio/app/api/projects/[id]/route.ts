@@ -7,14 +7,21 @@ import { requireAdmin, isAuthError } from '@/lib/auth/session';
 
 type Params = { params: Promise<{ id: string }> };
 
+const isUUID = (s: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
 // ── GET /api/projects/:id ─────────────────────────────────────────────────────
 export async function GET(_req: NextRequest, { params }: Params) {
   const { id } = await params;
+  if (!isUUID(id)) return err('Project not found', 404);
 
-  const [data] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
-
-  if (!data) return err('Project not found', 404);
-  return ok(data);
+  try {
+    const [data] = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+    if (!data) return err('Project not found', 404);
+    return ok(data);
+  } catch {
+    return err('Failed to fetch project', 500);
+  }
 }
 
 // ── PATCH /api/projects/:id ───────────────────────────────────────────────────
@@ -23,6 +30,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (isAuthError(auth)) return auth;
 
   const { id } = await params;
+  if (!isUUID(id)) return err('Project not found', 404);
 
   let body: unknown;
   try { body = await req.json(); } catch { return err('Invalid JSON'); }
@@ -40,7 +48,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (!data) return err('Project not found', 404);
     return ok(data, 'Project updated');
   } catch (e) {
-    return err(`Update failed: ${(e as Error).message}`, 500);
+    console.error('[Projects] Update failed:', e);
+    return err('Update failed', 500);
   }
 }
 
@@ -50,11 +59,18 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (isAuthError(auth)) return auth;
 
   const { id } = await params;
+  if (!isUUID(id)) return err('Project not found', 404);
 
   try {
-    await db.delete(projects).where(eq(projects.id, id));
+    const [deleted] = await db
+      .delete(projects)
+      .where(eq(projects.id, id))
+      .returning({ id: projects.id });
+
+    if (!deleted) return err('Project not found', 404);
     return ok(null, 'Project deleted');
   } catch (e) {
-    return err(`Delete failed: ${(e as Error).message}`, 500);
+    console.error('[Projects] Delete failed:', e);
+    return err('Delete failed', 500);
   }
 }

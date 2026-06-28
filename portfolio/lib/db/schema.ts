@@ -41,17 +41,21 @@ export const projects = pgTable(
     subtitle: text('subtitle'),
     description: text('description'),
     image: text('image'),
-    gradient: text('gradient').default('from-violet-600 to-blue-600'),
-    tech_stack: text('tech_stack').array().default(sql`'{}'`),
+    gradient: text('gradient').notNull().default('from-violet-600 to-blue-600'),
+    tech_stack: text('tech_stack').array().notNull().default(sql`'{}'`),
     github_url: text('github_url'),
     live_url: text('live_url'),
     category: text('category'),
-    featured: boolean('featured').default(false),
-    order_index: integer('order_index').default(0),
+    featured: boolean('featured').notNull().default(false),
+    order_index: integer('order_index').notNull().default(0),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+      .$onUpdate(() => new Date()),
   },
-  (t) => [index('idx_projects_featured').on(t.featured)]
+  (t) => [
+    index('idx_projects_featured').on(t.featured),
+    index('idx_projects_order').on(t.order_index),
+  ]
 );
 
 // ─── blogs ────────────────────────────────────────────────────
@@ -64,33 +68,39 @@ export const blogs = pgTable(
     excerpt: text('excerpt'),
     content: text('content'),
     thumbnail: text('thumbnail'),
-    gradient: text('gradient').default('from-violet-600 to-blue-600'),
-    tags: text('tags').array().default(sql`'{}'`),
+    gradient: text('gradient').notNull().default('from-violet-600 to-blue-600'),
+    tags: text('tags').array().notNull().default(sql`'{}'`),
     read_time: text('read_time'),
-    published: boolean('published').default(false),
+    published: boolean('published').notNull().default(false),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+      .$onUpdate(() => new Date()),
   },
   (t) => [
-    index('idx_blogs_slug').on(t.slug),
+    // idx_blogs_slug omitted: .unique() above already creates an index on slug
     index('idx_blogs_published').on(t.published),
   ]
 );
 
 // ─── certifications ───────────────────────────────────────────
-export const certifications = pgTable('certifications', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  title: text('title').notNull(),
-  issuer: text('issuer').notNull(),
-  image: text('image'),
-  icon: text('icon').default('🏆'),
-  issued_date: date('issued_date'),
-  expiry_date: date('expiry_date'),
-  credential_url: text('credential_url'),
-  order_index: integer('order_index').default(0),
-  created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const certifications = pgTable(
+  'certifications',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    title: text('title').notNull(),
+    issuer: text('issuer').notNull(),
+    image: text('image'),
+    icon: text('icon').notNull().default('🏆'),
+    issued_date: date('issued_date'),
+    expiry_date: date('expiry_date'),
+    credential_url: text('credential_url'),
+    order_index: integer('order_index').notNull().default(0),
+    created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [index('idx_certifications_order').on(t.order_index)]
+);
 
 // ─── testimonials ─────────────────────────────────────────────
 export const testimonials = pgTable(
@@ -102,13 +112,19 @@ export const testimonials = pgTable(
     feedback: text('feedback').notNull(),
     avatar: text('avatar'),
     avatar_url: text('avatar_url'),
-    rating: integer('rating').default(5),
-    featured: boolean('featured').default(true),
-    order_index: integer('order_index').default(0),
+    // notNull() is required here: the CHECK constraint uses SQL comparison
+    // which evaluates to NULL (not false) when rating IS NULL, bypassing it.
+    rating: integer('rating').notNull().default(5),
+    featured: boolean('featured').notNull().default(true),
+    order_index: integer('order_index').notNull().default(0),
     created_at: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    updated_at: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow()
+      .$onUpdate(() => new Date()),
   },
-  (t) => [check('testimonials_rating_check', sql`${t.rating} >= 1 and ${t.rating} <= 5`)]
+  (t) => [
+    check('testimonials_rating_check', sql`${t.rating} >= 1 and ${t.rating} <= 5`),
+    index('idx_testimonials_order').on(t.order_index),
+  ]
 );
 
 // ─── analytics ────────────────────────────────────────────────
@@ -117,7 +133,7 @@ export const analytics = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     event_type: text('event_type').notNull(),
-    metadata: jsonb('metadata').default({}),
+    metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
     ip_address: text('ip_address'),
     user_agent: text('user_agent'),
     referrer: text('referrer'),

@@ -29,7 +29,16 @@ export async function POST(req: NextRequest, { params }: Params) {
     return err('No file provided — include a "file" field in the form data');
   }
 
-  const folder = (formData.get('folder') as string | null) ?? '';
+  // Sanitize the optional subfolder: allow only alphanumeric, dash, underscore,
+  // dot, and forward-slash. Collapse consecutive dots (prevents ../ traversal)
+  // and repeated slashes. Capped at 100 chars.
+  const rawFolder = (formData.get('folder') as string | null) ?? '';
+  const folder = rawFolder
+    .replace(/[^a-zA-Z0-9._/-]/g, '')
+    .replace(/\.{2,}/g, '.')   // collapse .. → . (prevents path traversal)
+    .replace(/\/+/g, '/')
+    .replace(/^\/|\/$/g, '')
+    .slice(0, 100);
 
   try {
     const result = await uploadFile(file, bucket as StorageBucket, folder);

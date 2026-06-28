@@ -2,6 +2,8 @@ import { SignJWT, jwtVerify } from 'jose';
 
 const COOKIE_NAME = 'session';
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 days (seconds)
+const JWT_ISSUER = 'portfolio';
+const JWT_AUDIENCE = 'portfolio-admin';
 
 export interface SessionPayload {
   email: string;
@@ -10,7 +12,10 @@ export interface SessionPayload {
 function getSecret(): Uint8Array {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error('JWT_SECRET is not set');
-  return new TextEncoder().encode(secret);
+  const encoded = new TextEncoder().encode(secret);
+  // HS256 requires a minimum 256-bit (32-byte) key
+  if (encoded.length < 32) throw new Error('JWT_SECRET must be at least 32 bytes');
+  return encoded;
 }
 
 /** Sign a session JWT (HS256). Edge-runtime safe. */
@@ -19,6 +24,8 @@ export async function signToken(payload: SessionPayload): Promise<string> {
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE}s`)
+    .setIssuer(JWT_ISSUER)
+    .setAudience(JWT_AUDIENCE)
     .sign(getSecret());
 }
 
@@ -26,8 +33,13 @@ export async function signToken(payload: SessionPayload): Promise<string> {
 export async function verifyToken(token: string | undefined): Promise<SessionPayload | null> {
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, getSecret());
-    if (typeof payload.email !== 'string') return null;
+    const { payload } = await jwtVerify(token, getSecret(), {
+      algorithms: ['HS256'],
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+      clockTolerance: 30, // seconds — tolerate minor server clock skew
+    });
+    if (typeof payload.email !== 'string' || !payload.email) return null;
     return { email: payload.email };
   } catch {
     return null;
@@ -42,7 +54,7 @@ export function sessionCookieOptions(maxAge: number) {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax' as const,
+    sameSite: 'strict' as const,
     path: '/',
     maxAge,
   };

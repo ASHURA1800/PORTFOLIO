@@ -1,16 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function AdminLoginPage() {
+function LoginForm() {
   const router = useRouter();
-  const [form, setForm] = useState({ email: '', password: '' });
+  const searchParams = useSearchParams();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return; // guard against double-submit
     setError('');
     setLoading(true);
 
@@ -18,20 +21,37 @@ export default function AdminLoginPage() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ email, password }),
       });
-      const data = await res.json();
 
-      if (!res.ok) {
-        setError(data.error ?? 'Login failed');
+      // Parse JSON separately — a non-JSON body (e.g. 500 HTML) must not
+      // collapse into a misleading "Network error".
+      let data: { error?: string } = {};
+      try { data = await res.json(); } catch { /* non-JSON response body */ }
+
+      if (res.status === 429) {
+        setError('Too many attempts. Please wait before trying again.');
+        setLoading(false);
         return;
       }
 
-      router.push('/admin');
-      router.refresh();
+      if (!res.ok) {
+        setError(data.error ?? 'Login failed. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // Validate redirectTo against open-redirect: must be a relative /admin path.
+      const raw = searchParams.get('redirectTo') ?? '';
+      const destination =
+        raw.startsWith('/admin') && !raw.includes('//') ? raw : '/admin';
+
+      router.push(destination);
+      router.refresh(); // bust RSC cache so the admin layout re-runs with the new cookie
+      // Do NOT reset loading here — the component unmounts on navigation.
+      // Resetting it would cause a visible re-enable flash before unmount.
     } catch {
-      setError('Network error. Please try again.');
-    } finally {
+      setError('Network error. Please check your connection and try again.');
       setLoading(false);
     }
   };
@@ -49,35 +69,43 @@ export default function AdminLoginPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4 bg-white/4 border border-white/8 rounded-2xl p-6">
           {error && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+            <div role="alert" className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
               {error}
             </div>
           )}
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1.5 font-medium">Email</label>
+            <label htmlFor="email" className="block text-xs text-gray-500 mb-1.5 font-medium">
+              Email
+            </label>
             <input
+              id="email"
               type="email"
               name="email"
               required
               autoComplete="email"
-              value={form.email}
-              onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 transition-all"
+              disabled={loading}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 transition-all disabled:opacity-50"
               placeholder="admin@example.com"
             />
           </div>
 
           <div>
-            <label className="block text-xs text-gray-500 mb-1.5 font-medium">Password</label>
+            <label htmlFor="password" className="block text-xs text-gray-500 mb-1.5 font-medium">
+              Password
+            </label>
             <input
+              id="password"
               type="password"
               name="password"
               required
               autoComplete="current-password"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 transition-all"
+              disabled={loading}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-white/4 border border-white/8 rounded-xl px-4 py-3 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 transition-all disabled:opacity-50"
               placeholder="••••••••"
             />
           </div>
@@ -92,5 +120,19 @@ export default function AdminLoginPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function AdminLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-gray-950">
+          <div className="w-8 h-8 rounded-full border-2 border-violet-500 border-t-transparent animate-spin" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

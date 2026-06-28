@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
     const [data] = await db.insert(certifications).values(parsed.data).returning();
     return created(data, 'Certification created');
   } catch (e) {
-    return err(`Failed to create certification: ${(e as Error).message}`, 500);
+    console.error('[Certifications] Create failed:', e);
+    return err('Failed to create certification', 500);
   }
 }

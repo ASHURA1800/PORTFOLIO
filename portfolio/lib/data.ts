@@ -6,26 +6,12 @@ export const navLinks = [
   { label: 'Contact', href: '#contact' },
 ];
 
-export const socialLinks = [
-  { label: 'GitHub', href: 'https://github.com', icon: 'github' },
-  { label: 'LinkedIn', href: 'https://linkedin.com', icon: 'linkedin' },
-  { label: 'Twitter', href: 'https://twitter.com', icon: 'twitter' },
-  { label: 'Email', href: 'mailto:dev@example.com', icon: 'mail' },
-];
-
 export const roles = [
   'Full Stack Developer',
   'AI Engineer',
   'FinTech Builder',
   'Linux Enthusiast',
   'Open Source Contributor',
-];
-
-export const stats = [
-  { value: '3+', label: 'Years Experience' },
-  { value: '20+', label: 'Projects Shipped' },
-  { value: '8+', label: 'Tech Stacks' },
-  { value: '∞', label: 'Lines of Code' },
 ];
 
 export const skills = {

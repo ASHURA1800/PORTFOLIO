@@ -7,17 +7,32 @@ import { requireAdmin, isAuthError } from '@/lib/auth/session';
 
 type Params = { params: Promise<{ id: string }> };
 
+const isUUID = (s: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
 export async function GET(_req: NextRequest, { params }: Params) {
   const { id } = await params;
-  const [data] = await db.select().from(certifications).where(eq(certifications.id, id)).limit(1);
-  if (!data) return err('Certification not found', 404);
-  return ok(data);
+  if (!isUUID(id)) return err('Certification not found', 404);
+
+  try {
+    const [data] = await db
+      .select()
+      .from(certifications)
+      .where(eq(certifications.id, id))
+      .limit(1);
+    if (!data) return err('Certification not found', 404);
+    return ok(data);
+  } catch {
+    return err('Failed to fetch certification', 500);
+  }
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   const auth = await requireAdmin(req);
   if (isAuthError(auth)) return auth;
+
   const { id } = await params;
+  if (!isUUID(id)) return err('Certification not found', 404);
 
   let body: unknown;
   try { body = await req.json(); } catch { return err('Invalid JSON'); }
@@ -34,18 +49,28 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (!data) return err('Certification not found', 404);
     return ok(data, 'Certification updated');
   } catch (e) {
-    return err(`Update failed: ${(e as Error).message}`, 500);
+    console.error('[Certifications] Update failed:', e);
+    return err('Update failed', 500);
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   const auth = await requireAdmin(req);
   if (isAuthError(auth)) return auth;
+
   const { id } = await params;
+  if (!isUUID(id)) return err('Certification not found', 404);
+
   try {
-    await db.delete(certifications).where(eq(certifications.id, id));
+    const [deleted] = await db
+      .delete(certifications)
+      .where(eq(certifications.id, id))
+      .returning({ id: certifications.id });
+
+    if (!deleted) return err('Certification not found', 404);
     return ok(null, 'Certification deleted');
   } catch (e) {
-    return err(`Delete failed: ${(e as Error).message}`, 500);
+    console.error('[Certifications] Delete failed:', e);
+    return err('Delete failed', 500);
   }
 }

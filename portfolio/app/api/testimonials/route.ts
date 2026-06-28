@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
     const [data] = await db.insert(testimonials).values(parsed.data).returning();
     return created(data, 'Testimonial created');
   } catch (e) {
-    return err(`Failed to create testimonial: ${(e as Error).message}`, 500);
+    console.error('[Testimonials] Create failed:', e);
+    return err('Failed to create testimonial', 500);
   }
 }

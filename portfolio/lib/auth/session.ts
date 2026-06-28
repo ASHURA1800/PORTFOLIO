@@ -21,6 +21,12 @@ export async function isAdmin(): Promise<boolean> {
   return user.email === process.env.ADMIN_EMAIL;
 }
 
+/** Returns the session user only when they are the admin; null otherwise. */
+export async function getAdminUser(): Promise<SessionPayload | null> {
+  const user = await getUser();
+  return user?.email === process.env.ADMIN_EMAIL ? user : null;
+}
+
 /**
  * Route handler guard — call at the top of any admin API route.
  * Returns { user } on success, or a 401/403 NextResponse on failure.

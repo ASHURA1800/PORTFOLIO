@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
     if ((e as { code?: string }).code === '23505') {
       return err('A blog with this slug already exists', 409);
     }
-    return err(`Failed to create blog: ${(e as Error).message}`, 500);
+    console.error('[Blogs] Create failed:', e);
+    return err('Failed to create blog', 500);
   }
 }

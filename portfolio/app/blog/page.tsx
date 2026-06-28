@@ -3,7 +3,6 @@ import { db, blogs } from '@/lib/db';
 import { Metadata } from 'next';
 import { Clock, ArrowLeft, BookOpen } from 'lucide-react';
 import Link from 'next/link';
-import type { Blog } from '@/types';
 
 export const metadata: Metadata = {
   title: 'Blog — Articles & Writing',
@@ -37,8 +36,6 @@ async function getPublishedPosts() {
 export default async function BlogListPage() {
   const posts = await getPublishedPosts();
 
-  const articles = posts as unknown as Blog[];
-
   return (
     <main className="min-h-screen bg-[#050508] text-white">
       <div className="max-w-4xl mx-auto px-6 py-24">
@@ -65,14 +62,14 @@ export default async function BlogListPage() {
         </div>
 
         {/* Articles grid */}
-        {articles.length === 0 ? (
+        {posts.length === 0 ? (
           <div className="text-center py-24 text-gray-600">
             <BookOpen size={40} className="mx-auto mb-4 opacity-30" />
-            <p>No articles published yet. Check back soon.</p>
+            <p>No posts published yet. Check back soon.</p>
           </div>
         ) : (
           <div className="grid md:grid-cols-2 gap-5">
-            {articles.map((post) => {
+            {posts.map((post) => {
               const tag = post.tags?.[0] ?? 'Article';
               const dateStr = post.created_at
                 ? new Date(post.created_at).toLocaleDateString('en-US', {

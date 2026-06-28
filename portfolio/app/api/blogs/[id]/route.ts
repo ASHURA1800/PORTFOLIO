@@ -11,17 +11,29 @@ const isUUID = (s: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 // ── GET /api/blogs/:id  (id = UUID or slug) ───────────────────────────────────
-export async function GET(_req: NextRequest, { params }: Params) {
+export async function GET(req: NextRequest, { params }: Params) {
   const { id } = await params;
 
-  const [data] = await db
-    .select()
-    .from(blogs)
-    .where(isUUID(id) ? eq(blogs.id, id) : eq(blogs.slug, id))
-    .limit(1);
+  try {
+    const [data] = await db
+      .select()
+      .from(blogs)
+      .where(isUUID(id) ? eq(blogs.id, id) : eq(blogs.slug, id))
+      .limit(1);
 
-  if (!data) return err('Blog not found', 404);
-  return ok(data);
+    if (!data) return err('Blog not found', 404);
+
+    // Unpublished drafts are admin-only. Return the same 404 to avoid leaking
+    // that the draft exists at all.
+    if (!data.published) {
+      const auth = await requireAdmin(req);
+      if (isAuthError(auth)) return err('Blog not found', 404);
+    }
+
+    return ok(data);
+  } catch {
+    return err('Failed to fetch blog', 500);
+  }
 }
 
 // ── PATCH /api/blogs/:id ──────────────────────────────────────────────────────
@@ -30,6 +42,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (isAuthError(auth)) return auth;
 
   const { id } = await params;
+  if (!isUUID(id)) return err('Blog not found', 404);
 
   let body: unknown;
   try { body = await req.json(); } catch { return err('Invalid JSON'); }
@@ -50,7 +63,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if ((e as { code?: string }).code === '23505') {
       return err('A blog with this slug already exists', 409);
     }
-    return err(`Update failed: ${(e as Error).message}`, 500);
+    console.error('[Blogs] Update failed:', e);
+    return err('Update failed', 500);
   }
 }
 
@@ -60,11 +74,18 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   if (isAuthError(auth)) return auth;
 
   const { id } = await params;
+  if (!isUUID(id)) return err('Blog not found', 404);
 
   try {
-    await db.delete(blogs).where(eq(blogs.id, id));
+    const [deleted] = await db
+      .delete(blogs)
+      .where(eq(blogs.id, id))
+      .returning({ id: blogs.id });
+
+    if (!deleted) return err('Blog not found', 404);
     return ok(null, 'Blog deleted');
   } catch (e) {
-    return err(`Delete failed: ${(e as Error).message}`, 500);
+    console.error('[Blogs] Delete failed:', e);
+    return err('Delete failed', 500);
   }
 }

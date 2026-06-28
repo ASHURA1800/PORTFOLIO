@@ -1,59 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyToken, SESSION_COOKIE } from '@/lib/auth/jwt';
 
-// Routes that require admin authentication
-const ADMIN_ROUTES = ['/admin'];
+function applySecurityHeaders(res: NextResponse): NextResponse {
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'DENY');
+  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.headers.set(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=()',
+  );
+  // HSTS: only meaningful over HTTPS
+  if (process.env.NODE_ENV === 'production') {
+    res.headers.set(
+      'Strict-Transport-Security',
+      'max-age=63072000; includeSubDomains; preload',
+    );
+  }
+  return res;
+}
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const isAdminPath = pathname.startsWith('/admin');
 
-  const response = NextResponse.next({ request: req });
-
-  // ── Verify JWT session ────────────────────────────────────
-  const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const user = await verifyToken(token);
-  const isAdminUser = !!user && user.email === process.env.ADMIN_EMAIL;
-
-  // ── Protect /admin pages ──────────────────────────────────
-  const isAdminPage = ADMIN_ROUTES.some(
-    (r) => pathname === r || pathname.startsWith(`${r}/`)
-  );
-
-  if (isAdminPage && pathname !== '/admin/login') {
-    if (!isAdminUser) {
-      const loginUrl = new URL('/admin/login', req.url);
-      loginUrl.searchParams.set('redirectTo', pathname);
-      return NextResponse.redirect(loginUrl);
-    }
+  // Verify JWT only for admin paths — public routes skip this entirely
+  let isAdminUser = false;
+  if (isAdminPath) {
+    const token = req.cookies.get(SESSION_COOKIE)?.value;
+    const user = await verifyToken(token);
+    isAdminUser = !!user && user.email === process.env.ADMIN_EMAIL;
   }
 
-  // ── Redirect already-logged-in admin away from /admin/login ─
+  // Protect /admin/* — redirect unauthenticated requests to login
+  if (isAdminPath && pathname !== '/admin/login' && !isAdminUser) {
+    const loginUrl = new URL('/admin/login', req.url);
+    loginUrl.searchParams.set('redirectTo', pathname);
+    return applySecurityHeaders(NextResponse.redirect(loginUrl));
+  }
+
+  // Redirect authenticated admin away from the login page
   if (pathname === '/admin/login' && isAdminUser) {
-    return NextResponse.redirect(new URL('/admin', req.url));
+    return applySecurityHeaders(NextResponse.redirect(new URL('/admin', req.url)));
   }
 
-  // ── Security headers on all responses ────────────────────
-  response.headers.set('X-Content-Type-Options', 'nosniff');
-  response.headers.set('X-Frame-Options', 'DENY');
-  response.headers.set('X-XSS-Protection', '1; mode=block');
-  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  response.headers.set(
-    'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=()'
-  );
-
-  return response;
+  return applySecurityHeaders(NextResponse.next({ request: req }));
 }
 
 export const config = {
   matcher: [
     /*
-     * Match all request paths EXCEPT:
-     * - _next/static (static files)
-     * - _next/image (image optimization)
+     * Match all paths EXCEPT:
+     * - _next/static  (static chunks)
+     * - _next/image   (image optimisation)
      * - favicon.ico
-     * - public assets
+     * - public assets: images, fonts
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?|ttf|otf|ico)$).*)',
   ],
 };

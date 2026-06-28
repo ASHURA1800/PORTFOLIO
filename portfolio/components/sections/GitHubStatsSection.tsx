@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { GitBranch, GitCommitHorizontal, Flame, Star, GitFork } from 'lucide-react';
 import { SectionWrapper, SectionHeader } from '@/components/ui/SectionWrapper';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type GitHubStats = {
   totalCommits: number;
@@ -35,13 +35,25 @@ function ContributionGrid({ grid }: { grid: number[][] }) {
   const colors = ['bg-white/5', 'bg-violet-900/60', 'bg-violet-700/70', 'bg-violet-500/80', 'bg-violet-400'];
   const intensities = [0, 0, 0, 1, 1, 2, 2, 3, 3, 4];
 
+  // Pre-generate fallback once. Math.random() in the render body would produce
+  // new values on every re-render (e.g. when the API fetch resolves), causing a
+  // visual flash of reshuffled colors.
+  const fallbackGrid = useMemo(
+    () =>
+      Array.from({ length: weeks }, () =>
+        Array.from({ length: days }, () => intensities[Math.floor(Math.random() * intensities.length)])
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+
   return (
     <div className="overflow-x-auto">
       <div className="inline-flex gap-1 min-w-max">
         {Array.from({ length: weeks }).map((_, w) => (
           <div key={w} className="flex flex-col gap-1">
             {Array.from({ length: days }).map((_, d) => {
-              const level = grid?.[w]?.[d] ?? intensities[Math.floor(Math.random() * intensities.length)];
+              const level = grid?.[w]?.[d] ?? fallbackGrid[w][d];
               return (
                 <motion.div
                   key={d}
