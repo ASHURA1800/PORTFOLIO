@@ -6,14 +6,7 @@ import { ArrowLeft, Clock, Tag } from 'lucide-react';
 import Link from 'next/link';
 import type { Blog } from '@/types';
 
-// ── Static param generation for ISR ──────────────────────────────────────────
-export async function generateStaticParams() {
-  const data = await db
-    .select({ slug: blogs.slug })
-    .from(blogs)
-    .where(eq(blogs.published, true));
-  return data.map((p) => ({ slug: p.slug }));
-}
+export const dynamic = 'force-dynamic';
 
 // ── Dynamic SEO metadata ──────────────────────────────────────────────────────
 export async function generateMetadata({
@@ -53,8 +46,6 @@ export async function generateMetadata({
     },
   };
 }
-
-export const revalidate = 60;
 
 // ── Page component ────────────────────────────────────────────────────────────
 export default async function BlogPostPage({

@@ -10,23 +10,32 @@ export const metadata: Metadata = {
   description: 'Engineering deep-dives, AI development, and lessons from building production software.',
 };
 
-export const revalidate = 60; // ISR: revalidate every 60s
+export const dynamic = 'force-dynamic';
+
+async function getPublishedPosts() {
+  try {
+    return await db
+      .select({
+        id: blogs.id,
+        title: blogs.title,
+        slug: blogs.slug,
+        excerpt: blogs.excerpt,
+        tags: blogs.tags,
+        read_time: blogs.read_time,
+        gradient: blogs.gradient,
+        created_at: blogs.created_at,
+      })
+      .from(blogs)
+      .where(eq(blogs.published, true))
+      .orderBy(desc(blogs.created_at));
+  } catch (e) {
+    console.error('[Blog List] Failed to load posts:', e);
+    return [];
+  }
+}
 
 export default async function BlogListPage() {
-  const posts = await db
-    .select({
-      id: blogs.id,
-      title: blogs.title,
-      slug: blogs.slug,
-      excerpt: blogs.excerpt,
-      tags: blogs.tags,
-      read_time: blogs.read_time,
-      gradient: blogs.gradient,
-      created_at: blogs.created_at,
-    })
-    .from(blogs)
-    .where(eq(blogs.published, true))
-    .orderBy(desc(blogs.created_at));
+  const posts = await getPublishedPosts();
 
   const articles = posts as unknown as Blog[];
 

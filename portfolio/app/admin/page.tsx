@@ -1,26 +1,44 @@
 import { gte } from 'drizzle-orm';
 import { db, projects, blogs, certifications, testimonials, contacts, analytics } from '@/lib/db';
 
+// Admin dashboard is auth-gated and shows live counts — render per request,
+// never statically prerendered at build time.
+export const dynamic = 'force-dynamic';
+
+const EMPTY_STATS = {
+  projects: 0,
+  blogs: 0,
+  certifications: 0,
+  testimonials: 0,
+  contacts: 0,
+  analytics30d: 0,
+};
+
 async function getStats() {
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const [projectsCount, blogsCount, certsCount, testimonialsCount, contactsCount, analytics30d] =
-    await Promise.all([
-      db.$count(projects),
-      db.$count(blogs),
-      db.$count(certifications),
-      db.$count(testimonials),
-      db.$count(contacts),
-      db.$count(analytics, gte(analytics.created_at, since)),
-    ]);
+  try {
+    const [projectsCount, blogsCount, certsCount, testimonialsCount, contactsCount, analytics30d] =
+      await Promise.all([
+        db.$count(projects),
+        db.$count(blogs),
+        db.$count(certifications),
+        db.$count(testimonials),
+        db.$count(contacts),
+        db.$count(analytics, gte(analytics.created_at, since)),
+      ]);
 
-  return {
-    projects: projectsCount,
-    blogs: blogsCount,
-    certifications: certsCount,
-    testimonials: testimonialsCount,
-    contacts: contactsCount,
-    analytics30d,
-  };
+    return {
+      projects: projectsCount,
+      blogs: blogsCount,
+      certifications: certsCount,
+      testimonials: testimonialsCount,
+      contacts: contactsCount,
+      analytics30d,
+    };
+  } catch (e) {
+    console.error('[Admin Dashboard] Failed to load stats:', e);
+    return EMPTY_STATS;
+  }
 }
 
 const CARDS = [

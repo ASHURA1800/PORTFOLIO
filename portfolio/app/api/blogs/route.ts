@@ -8,9 +8,10 @@ import { requireAdmin, isAuthError } from '@/lib/auth/session';
 // ── GET /api/blogs ─────────────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const { page, limit, search, order } = paginationSchema.parse(
-    Object.fromEntries(url.searchParams)
-  );
+  const parsedParams = paginationSchema.safeParse(Object.fromEntries(url.searchParams));
+  const { page, limit, search, order } = parsedParams.success
+    ? parsedParams.data
+    : { page: 1, limit: 10, search: undefined, order: 'desc' as const };
 
   // Only admins can see unpublished posts
   const auth = await requireAdmin(req);
